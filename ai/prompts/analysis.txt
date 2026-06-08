@@ -31,4 +31,6 @@ Estructura tu respuesta así:
 **6. Recomendaciones concretas para las próximas 4 semanas**
 - Máximo 3 recomendaciones, específicas y accionables
 
+Si hay historial de carreras en el contexto, inclúyelo en el análisis: progresión de tiempos, qué disciplina mejora más lentamente, si los entrenamientos se reflejan en los resultados.
+
 Sé directo, usa los datos reales. No des consejos genéricos. Si hay datos insuficientes, dilo claramente.

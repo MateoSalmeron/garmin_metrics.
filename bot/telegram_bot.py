@@ -17,6 +17,7 @@ from telegram.ext import (
 )
 
 from ai.layer import ask_claude, build_prompt
+from races.recorder import build_race_result, load_all_races, save_race
 from config import (
     CURRENT_DIET,
     CURRENT_METRICS,
@@ -292,6 +293,77 @@ async def cmd_nueva_carrera(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def cmd_registrar_carrera(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log a past race result.
+
+    Usage: /registrar_carrera nombre|fecha|distancia|tiempo [|pos_general] [|pos_categoria] [|notas]
+    Example: /registrar_carrera 10K Parque|2026-05-10|10k|42:30|45|8|Me faltó fondo en el km 8
+    """
+    raw = " ".join(context.args) if context.args else ""
+    parts = [p.strip() for p in raw.split("|")]
+
+    if len(parts) < 4:
+        await update.message.reply_text(
+            "Formato:\n"
+            "/registrar\\_carrera nombre|fecha|distancia|tiempo\\[|pos\\_general\\]\\[|pos\\_categoria\\]\\[|notas\\]\n\n"
+            "Ejemplo:\n"
+            "/registrar\\_carrera 10K Parque|2026-05-10|10k|42:30|45|8|Me faltó fondo al final\n\n"
+            "Distancias: 5k, 10k, media\\_maraton, maraton, sprint, olimpico, medio, iron",
+            parse_mode="Markdown",
+        )
+        return
+
+    name, race_date, distance, total_time = parts[0], parts[1], parts[2], parts[3]
+    pos_overall  = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else None
+    pos_category = int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else None
+    notes        = parts[6] if len(parts) > 6 else ""
+
+    try:
+        datetime.strptime(race_date, "%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("Fecha inválida. Usa YYYY-MM-DD, ej: 2026-05-10")
+        return
+
+    race = build_race_result(
+        name=name,
+        date=race_date,
+        distance=distance.lower(),
+        total_time=total_time,
+        position_overall=pos_overall,
+        position_category=pos_category,
+        notes=notes,
+        source="manual",
+    )
+    save_race(race)
+    await update.message.reply_text(
+        f"✓ Resultado guardado:\n"
+        f"*{name}* — {race_date} — {total_time}"
+        + (f" — Pos. {pos_overall}" if pos_overall else ""),
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_resultados(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    races = load_all_races()
+    if not races:
+        await update.message.reply_text(
+            "No hay resultados de carreras guardados.\n"
+            "Añade uno con /registrar\\_carrera o haz /sync si tienes carreras marcadas en Garmin.",
+            parse_mode="Markdown",
+        )
+        return
+
+    lines = ["*Historial de resultados:*\n"]
+    for r in races:
+        res = r.get("result", {})
+        time  = res.get("total_time", "?")
+        pos   = f" — Pos. {res['position_overall']}" if res.get("position_overall") else ""
+        src   = " _(Garmin)_" if r.get("source") == "garmin" else ""
+        lines.append(f"🏅 *{r['name']}*{src}\n   📅 {r['date']} ({r.get('distance','?')}) — {time}{pos}")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "*Comandos disponibles:*\n\n"
@@ -299,15 +371,17 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "⚡ /estado — Check rápido de forma actual\n"
         "🔍 /analizar — Análisis profundo de los últimos 3 meses\n"
         "📊 /resumen — Resumen + predicciones de tiempos\n\n"
-        "🗓 /plan — Generar plan de temporada hasta tu próxima carrera A\n"
+        "🗓 /plan — Plan de temporada hasta tu próxima carrera A\n"
         "📋 /ver\\_plan — Ver el plan guardado\n\n"
-        "🥗 /dieta — Generar propuesta nutricional semanal\n"
+        "🥗 /dieta — Propuesta nutricional semanal\n"
         "🍽 /ver\\_dieta — Ver la dieta guardada\n\n"
         "🚨 /alerta — Comprobar riesgo de sobreentrenamiento\n\n"
-        "🏁 /carreras — Ver carreras del calendario\n"
-        "➕ /nueva\\_carrera — Añadir una carrera\n\n"
-        "📝 /nota <texto> — Guardar sensación post-entreno\n\n"
-        "💬 *Chat libre* — Escríbeme cualquier pregunta"
+        "🏁 /carreras — Carreras futuras del calendario\n"
+        "➕ /nueva\\_carrera — Añadir carrera futura\n"
+        "🏅 /resultados — Historial de resultados\n"
+        "✍️ /registrar\\_carrera — Guardar resultado de una carrera\n\n"
+        "📝 /nota <texto> — Sensación post-entreno\n\n"
+        "💬 *Chat libre* — Cualquier pregunta con contexto completo"
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
@@ -352,9 +426,11 @@ def main() -> None:
     app.add_handler(CommandHandler("ver_dieta",     cmd_ver_dieta))
     app.add_handler(CommandHandler("alerta",        cmd_alerta))
     app.add_handler(CommandHandler("nota",          cmd_nota))
-    app.add_handler(CommandHandler("carreras",      cmd_carreras))
-    app.add_handler(CommandHandler("nueva_carrera", cmd_nueva_carrera))
-    app.add_handler(CommandHandler("help",          cmd_help))
+    app.add_handler(CommandHandler("carreras",          cmd_carreras))
+    app.add_handler(CommandHandler("nueva_carrera",     cmd_nueva_carrera))
+    app.add_handler(CommandHandler("resultados",        cmd_resultados))
+    app.add_handler(CommandHandler("registrar_carrera", cmd_registrar_carrera))
+    app.add_handler(CommandHandler("help",              cmd_help))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_free_chat))
 
     log.info("Bot started. Polling...")

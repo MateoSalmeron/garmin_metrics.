@@ -33,4 +33,6 @@ Si falta natación o ciclismo para la predicción de triatlón, estima a partir 
 - ¿Estás en el camino correcto para tu objetivo?
 - Un consejo específico para las próximas 2 semanas
 
+Si hay historial de carreras disponible, úsalo como referencia principal para las predicciones — los tiempos reales son más fiables que los estimados por pace de entrenamiento. Muestra la progresión si hay varias carreras de la misma distancia.
+
 Sé honesto con los datos. Si hay poca información, indica qué le falta al atleta para tener predicciones más precisas.

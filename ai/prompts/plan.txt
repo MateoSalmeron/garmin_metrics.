@@ -52,3 +52,8 @@ Ten en cuenta las lesiones previas y limitaciones del perfil. Da indicaciones es
 
 Adapta el volumen y días a los disponibles del atleta. No superes las horas máximas semanales del perfil.
 Recuerda: es mejor llegar descansado que llegar sobrecargado. Incluye obligatoriamente semanas de descarga.
+
+Si hay historial de carreras disponible en el contexto, úsalo para:
+- Calibrar los tiempos objetivo realistas para la carrera A
+- Identificar el deporte más débil según los splits anteriores
+- Ajustar la proporción de volumen por deporte en consecuencia
