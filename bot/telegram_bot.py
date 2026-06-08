@@ -77,7 +77,7 @@ def _load_journal_recent(days: int = 14) -> list[dict]:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Syncing last 3 months from Garmin Connect...")
+    await update.message.reply_text("Syncing last 6 months from Garmin Connect...")
     try:
         saved = sync_activities()
         calculate_metrics()
@@ -107,7 +107,7 @@ async def cmd_analizar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not CURRENT_METRICS.exists():
         await update.message.reply_text("No metrics yet — run /sync first.")
         return
-    await update.message.reply_text("Analizando los últimos 3 meses... (puede tardar un momento)")
+    await update.message.reply_text("Analizando los últimos 6 meses... (puede tardar un momento)")
     await _typing(update, context)
     try:
         prompt = build_prompt("analysis", extra={"journal_recent": _load_journal_recent()})
@@ -367,9 +367,9 @@ async def cmd_resultados(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         "*Comandos disponibles:*\n\n"
-        "📡 /sync — Descargar últimos 3 meses de Garmin\n"
+        "📡 /sync — Descargar últimos 6 meses de Garmin\n"
         "⚡ /estado — Check rápido de forma actual\n"
-        "🔍 /analizar — Análisis profundo de los últimos 3 meses\n"
+        "🔍 /analizar — Análisis profundo de los últimos 6 meses\n"
         "📊 /resumen — Resumen + predicciones de tiempos\n\n"
         "🗓 /plan — Plan de temporada hasta tu próxima carrera A\n"
         "📋 /ver\\_plan — Ver el plan guardado\n\n"
