@@ -38,8 +38,9 @@ def calculate_metrics() -> dict:
 
     this_week = _filter_period(activities, week_start, today)
     prev_week = _filter_period(activities, prev_week_start, week_start)
-    last_4w   = _filter_period(activities, today - timedelta(weeks=4), today)
+    last_4w   = _filter_period(activities, today - timedelta(weeks=4),  today)
     last_12w  = _filter_period(activities, today - timedelta(weeks=12), today)
+    last_24w  = _filter_period(activities, today - timedelta(weeks=24), today)
 
     metrics = {
         "generated_at":       str(today),
@@ -48,14 +49,18 @@ def calculate_metrics() -> dict:
         "prev_weekly_volume": _volume_by_sport(prev_week),
         "last_4w_volume":     _volume_by_sport(last_4w),
         "last_12w_volume":    _volume_by_sport(last_12w),
-        "avg_paces":          _avg_paces(last_4w),
+        "last_6m_volume":     _volume_by_sport(last_24w),
+        "avg_paces_last_4w":  _avg_paces(last_4w),
+        "avg_paces_last_6m":  _avg_paces(last_24w),
         "hr_zones_this_week": _hr_zones(this_week, max_hr),
         "hr_zones_last_4w":   _hr_zones(last_4w, max_hr),
+        "hr_zones_last_6m":   _hr_zones(last_24w, max_hr),
         "activities_count": {
             "this_week": len(this_week),
             "prev_week": len(prev_week),
             "last_4w":   len(last_4w),
             "last_12w":  len(last_12w),
+            "last_6m":   len(last_24w),
         },
         "last_activity": activities[0]["date"] if activities else None,
     }

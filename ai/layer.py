@@ -12,7 +12,7 @@ import os
 import subprocess
 
 from config import CURRENT_METRICS, CURRENT_PLAN, PROFILE_FILE, PROMPTS_DIR
-from races.recorder import load_recent_races
+from races.recorder import load_all_races
 
 USE_API = os.getenv("USE_API", "false").lower() == "true"
 
@@ -37,9 +37,9 @@ def build_prompt(template_name: str, extra: dict | None = None) -> str:
     if CURRENT_PLAN.exists():
         parts.append(f"\n## Current training plan\n{CURRENT_PLAN.read_text()}")
 
-    recent_races = load_recent_races(10)
-    if recent_races:
-        parts.append(f"\n## Race history (last 10 results)\n{json.dumps(recent_races, indent=2, ensure_ascii=False)}")
+    all_races = load_all_races()
+    if all_races:
+        parts.append(f"\n## Race history (all results, most recent first)\n{json.dumps(all_races, indent=2, ensure_ascii=False)}")
 
     if extra:
         parts.append(f"\n## Additional context\n{json.dumps(extra, indent=2, ensure_ascii=False)}")

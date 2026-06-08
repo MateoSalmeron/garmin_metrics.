@@ -23,7 +23,7 @@ _SPORT_MAP = {
     "lap_swimming":        "swimming",
 }
 
-MONTHS_BACK = 3
+MONTHS_BACK = 6
 
 
 def sync_activities() -> list[dict]:
