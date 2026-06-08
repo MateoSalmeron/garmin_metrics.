@@ -390,6 +390,84 @@ ANTHROPIC_API_KEY=
 
 ---
 
+## Mejora del perfil personal — datos biométricos y sistema de carreras
+
+### Motivación
+
+El perfil inicial era demasiado básico. Añadir datos biométricos (edad, peso, altura) y un sistema de prioridad de carreras permite que la IA genere recomendaciones mucho más personalizadas y no genéricas.
+
+### Nuevos campos en `profile.json`
+
+```json
+{
+  "name": "Mateo",
+  "age": 30,
+  "height_cm": 175,
+  "weight_kg": 70,
+  "max_hr": null,
+  "resting_hr": null,
+  "level": "intermediate",
+  "goal": "finish_olimpico",
+  "target_races": [
+    {
+      "name": "Triatlón X",
+      "date": "2026-09-15",
+      "distance": "olimpico",
+      "priority": "A",
+      "goal_time": null,
+      "notes": ""
+    }
+  ]
+}
+```
+
+**Campos nuevos y su impacto en la IA:**
+
+| Campo | Uso en las recomendaciones |
+|-------|---------------------------|
+| `age` | Calcula FC máxima estimada (220 - edad) si no se introduce manualmente |
+| `weight_kg` | Escala la carga nutricional (kcal por kg de peso) y la hidratación |
+| `height_cm` | Calcula IMC como referencia de salud; útil en recomendaciones de dieta |
+| `resting_hr` | Permite usar la fórmula de Karvonen para zonas de FC más precisas |
+| `max_hr` | Si se conoce por test, tiene prioridad sobre la estimación por edad |
+| `level` | Ajusta el volumen y la intensidad recomendada (beginner / intermediate / advanced) |
+| `goal` | Orienta el tipo de sesiones (finish vs mejorar tiempo vs podio) |
+
+### Sistema de prioridad de carreras (A/B/C)
+
+Metodología estándar de planificación de temporada en triatlón:
+
+| Prioridad | Significado | Preparación |
+|-----------|-------------|-------------|
+| **A** | Carrera objetivo principal | Tapering completo, toda la periodización apunta aquí |
+| **B** | Carrera importante | Tapering parcial, semana de carga normal antes |
+| **C** | Carrera de entrenamiento | Sin preparación especial, se corre con carga normal |
+
+La IA usará las fechas de las carreras A para calcular las fases de periodización:
+- **Base**: construcción aeróbica (12-16 semanas antes de la carrera A)
+- **Construcción**: aumento de intensidad y volumen específico
+- **Pico**: semanas de alta carga específica
+- **Tapering**: reducción progresiva 2-3 semanas antes
+
+### Cálculo automático de FC máxima
+
+Si `max_hr` es `null` en el perfil, el sistema usa la fórmula estándar:
+
+```
+FC_max = 220 - edad
+```
+
+Si `resting_hr` también está disponible, las zonas se calculan con Karvonen (más preciso):
+
+```
+FC_zona = FC_reposo + (FC_reserva × % zona)
+FC_reserva = FC_max - FC_reposo
+```
+
+Esto se implementa en `metrics/calculator.py` y se actualiza automáticamente si el usuario edita su perfil.
+
+---
+
 ## Notas para el agente implementador
 
 - Empezar siempre por la Fase 1. No implementar fases posteriores hasta que la anterior funcione.
