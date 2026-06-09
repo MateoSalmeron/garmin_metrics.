@@ -137,6 +137,12 @@ async def cmd_resumen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Generate a long-term training plan.
+
+    Usage:
+      /plan                                        → standard plan for next A race
+      /plan quiero enfocarme más en la natación    → adds extra instructions to the AI
+    """
     profile = _load_profile()
     next_race = _next_a_race(profile)
     if not next_race:
@@ -150,18 +156,22 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("La carrera A es en menos de 2 semanas. No tiene sentido generar un plan ahora.")
         return
 
-    await update.message.reply_text(
-        f"Generando plan de temporada para *{next_race['name']}* ({weeks} semanas)...\n"
-        "Esto puede tardar un poco.",
-        parse_mode="Markdown",
-    )
+    instructions = " ".join(context.args).strip() if context.args else ""
+
+    msg = f"Generando plan de temporada para *{next_race['name']}* ({weeks} semanas)..."
+    if instructions:
+        msg += f"\n_Instrucciones extra: {instructions}_"
+    msg += "\nEsto puede tardar un poco."
+    await update.message.reply_text(msg, parse_mode="Markdown")
     await _typing(update, context)
     try:
         extra = {
-            "next_a_race": next_race,
+            "next_a_race":     next_race,
             "weeks_until_race": weeks,
-            "today": str(date.today()),
+            "today":           str(date.today()),
         }
+        if instructions:
+            extra["athlete_instructions"] = instructions
         prompt = build_prompt("plan", extra=extra)
         plan_text = ask_claude(prompt)
         CURRENT_PLAN.write_text(plan_text)
