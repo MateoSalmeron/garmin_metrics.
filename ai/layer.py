@@ -12,7 +12,7 @@ import os
 import subprocess
 from datetime import date as _date
 
-from config import CURRENT_METRICS, CURRENT_PLAN, PROFILE_FILE, PROMPTS_DIR
+from config import CURRENT_METRICS, CURRENT_PLAN, PENDING_PLAN, PROFILE_FILE, PROMPTS_DIR
 from races.recorder import load_all_races
 
 USE_API = os.getenv("USE_API", "false").lower() == "true"
@@ -50,8 +50,11 @@ def build_prompt(
     if PROFILE_FILE.exists():
         parts.append(f"\n## Athlete profile\n{PROFILE_FILE.read_text()}")
 
-    if CURRENT_PLAN.exists():
-        parts.append(f"\n## Current training plan\n{CURRENT_PLAN.read_text()}")
+    # Prefer pending plan (being refined) over the saved one
+    plan_file = PENDING_PLAN if PENDING_PLAN.exists() else CURRENT_PLAN
+    if plan_file.exists():
+        label = "Training plan (pending approval)" if PENDING_PLAN.exists() else "Current training plan"
+        parts.append(f"\n## {label}\n{plan_file.read_text()}")
 
     all_races = load_all_races()
     if all_races:

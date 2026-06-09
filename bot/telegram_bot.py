@@ -23,6 +23,7 @@ from config import (
     CURRENT_DIET,
     CURRENT_METRICS,
     CURRENT_PLAN,
+    PENDING_PLAN,
     JOURNAL_FILE,
     PROFILE_FILE,
 )
@@ -203,13 +204,14 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             extra["athlete_instructions"] = instructions
         prompt = build_prompt("plan", extra=extra)
         plan_text = ask_claude(prompt)
-        CURRENT_PLAN.write_text(plan_text)
+        PENDING_PLAN.write_text(plan_text)
         _history_clear()
         _history_append("assistant", plan_text)
         await _send_long(update.message, plan_text)
         await update.message.reply_text(
-            "Plan guardado. Consúltalo con /ver_plan.\n"
-            "_Puedes seguir hablando conmigo para ajustarlo._",
+            "Plan generado pero *aún no guardado*.\n"
+            "Ajusta lo que quieras — puedes seguir hablando conmigo.\n"
+            "Cuando estés conforme escribe /guardar\\_plan.",
             parse_mode="Markdown",
         )
     except Exception as e:
@@ -217,11 +219,24 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Error: {e}")
 
 
-async def cmd_ver_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not CURRENT_PLAN.exists():
-        await update.message.reply_text("No hay ningún plan guardado. Genera uno con /plan.")
+async def cmd_guardar_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not PENDING_PLAN.exists():
+        await update.message.reply_text("No hay ningún plan pendiente. Genera uno con /plan.")
         return
-    await _send_long(update.message, CURRENT_PLAN.read_text())
+    import shutil
+    shutil.copy(PENDING_PLAN, CURRENT_PLAN)
+    PENDING_PLAN.unlink()
+    await update.message.reply_text("✓ Plan guardado. Consúltalo cuando quieras con /ver_plan.")
+
+
+async def cmd_ver_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if PENDING_PLAN.exists():
+        await update.message.reply_text("_(Este plan está pendiente de guardar — escribe /guardar\\_plan cuando estés conforme)_", parse_mode="Markdown")
+        await _send_long(update.message, PENDING_PLAN.read_text())
+    elif CURRENT_PLAN.exists():
+        await _send_long(update.message, CURRENT_PLAN.read_text())
+    else:
+        await update.message.reply_text("No hay ningún plan. Genera uno con /plan.")
 
 
 async def cmd_dieta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -422,8 +437,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "⚡ /estado — Check rápido de forma actual\n"
         "🔍 /analizar — Análisis profundo de los últimos 6 meses\n"
         "📊 /resumen — Resumen + predicciones de tiempos\n\n"
-        "🗓 /plan — Plan de temporada hasta tu próxima carrera A\n"
-        "📋 /ver\\_plan — Ver el plan guardado\n\n"
+        "🗓 /plan — Generar plan de temporada (no se guarda hasta que confirmes)\n"
+        "💾 /guardar\\_plan — Guardar el plan cuando estés conforme\n"
+        "📋 /ver\\_plan — Ver el plan (guardado o pendiente)\n\n"
         "🥗 /dieta — Propuesta nutricional semanal\n"
         "🍽 /ver\\_dieta — Ver la dieta guardada\n\n"
         "🚨 /alerta — Comprobar riesgo de sobreentrenamiento\n\n"
@@ -476,6 +492,7 @@ def main() -> None:
     app.add_handler(CommandHandler("analizar",      cmd_analizar))
     app.add_handler(CommandHandler("resumen",       cmd_resumen))
     app.add_handler(CommandHandler("plan",          cmd_plan))
+    app.add_handler(CommandHandler("guardar_plan",  cmd_guardar_plan))
     app.add_handler(CommandHandler("ver_plan",      cmd_ver_plan))
     app.add_handler(CommandHandler("dieta",         cmd_dieta))
     app.add_handler(CommandHandler("ver_dieta",     cmd_ver_dieta))

@@ -14,6 +14,7 @@ JOURNAL_FILE       = DATA_DIR / "journal.json"
 CONVERSATION_FILE  = DATA_DIR / "conversation.json"
 CURRENT_METRICS    = METRICS_DIR / "current.json"
 CURRENT_PLAN       = TRAINING_PLANS_DIR / "current.txt"
+PENDING_PLAN       = TRAINING_PLANS_DIR / "pending.txt"
 CURRENT_DIET       = DIET_PLANS_DIR / "current.txt"
 PROMPTS_DIR        = BASE_DIR / "ai" / "prompts"
 
