@@ -182,10 +182,6 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     weeks = _weeks_until(next_race["date"])
-    if weeks < 2:
-        await update.message.reply_text("La carrera A es en menos de 2 semanas. No tiene sentido generar un plan ahora.")
-        return
-
     instructions = " ".join(context.args).strip() if context.args else ""
 
     msg = f"Generando plan de temporada para *{next_race['name']}* ({weeks} semanas)..."
