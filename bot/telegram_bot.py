@@ -19,6 +19,7 @@ from telegram.ext import (
 from ai.layer import ask_claude, build_prompt
 from races.recorder import build_race_result, load_all_races, save_race
 from config import (
+    CONVERSATION_FILE,
     CURRENT_DIET,
     CURRENT_METRICS,
     CURRENT_PLAN,
@@ -66,6 +67,33 @@ def _weeks_until(date_str: str) -> int:
     return max(0, delta.days // 7)
 
 
+def _history_append(role: str, content: str) -> None:
+    """Append a message to the rolling conversation history."""
+    entries = _history_load_raw()
+    entries.append({"role": role, "content": content, "ts": datetime.now().isoformat()})
+    CONVERSATION_FILE.write_text(json.dumps(entries[-20:], indent=2, ensure_ascii=False))
+
+
+def _history_get(max_exchanges: int = 5, max_hours: int = 4) -> list[dict]:
+    """Return recent exchanges within the time window."""
+    cutoff = (datetime.now() - __import__("datetime").timedelta(hours=max_hours)).isoformat()
+    recent = [e for e in _history_load_raw() if e.get("ts", "") >= cutoff]
+    return recent[-(max_exchanges * 2):]
+
+
+def _history_clear() -> None:
+    CONVERSATION_FILE.write_text("[]")
+
+
+def _history_load_raw() -> list[dict]:
+    if not CONVERSATION_FILE.exists():
+        return []
+    try:
+        return json.loads(CONVERSATION_FILE.read_text())
+    except Exception:
+        return []
+
+
 def _load_journal_recent(days: int = 14) -> list[dict]:
     if not JOURNAL_FILE.exists():
         return []
@@ -81,6 +109,7 @@ async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         saved = sync_activities()
         calculate_metrics()
+        _history_clear()
         msg = f"✓ Done. {len(saved)} new activities downloaded, metrics updated."
         if not saved:
             msg = "✓ Done. No new activities since last sync. Metrics refreshed."
@@ -175,8 +204,14 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         prompt = build_prompt("plan", extra=extra)
         plan_text = ask_claude(prompt)
         CURRENT_PLAN.write_text(plan_text)
+        _history_clear()
+        _history_append("assistant", plan_text)
         await _send_long(update.message, plan_text)
-        await update.message.reply_text("Plan guardado. Consúltalo en cualquier momento con /ver_plan.")
+        await update.message.reply_text(
+            "Plan guardado. Consúltalo con /ver_plan.\n"
+            "_Puedes seguir hablando conmigo para ajustarlo._",
+            parse_mode="Markdown",
+        )
     except Exception as e:
         log.exception("plan failed")
         await update.message.reply_text(f"Error: {e}")
@@ -197,8 +232,14 @@ async def cmd_dieta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         prompt = build_prompt("diet", extra=extra)
         diet_text = ask_claude(prompt)
         CURRENT_DIET.write_text(diet_text)
+        _history_clear()
+        _history_append("assistant", diet_text)
         await _send_long(update.message, diet_text)
-        await update.message.reply_text("Dieta guardada. Consúltala con /ver_dieta.")
+        await update.message.reply_text(
+            "Dieta guardada. Consúltala con /ver_dieta.\n"
+            "_Puedes seguir hablando conmigo para ajustarla._",
+            parse_mode="Markdown",
+        )
     except Exception as e:
         log.exception("dieta failed")
         await update.message.reply_text(f"Error: {e}")
@@ -398,6 +439,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_free_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_text = update.message.text
+    _history_append("user", user_text)
     await _typing(update, context)
     try:
         extra = {
@@ -410,8 +452,11 @@ async def handle_free_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             extra["next_a_race"] = next_race
             extra["weeks_until_race"] = _weeks_until(next_race["date"])
 
-        prompt = build_prompt("chat", extra=extra)
-        await _send_long(update.message, ask_claude(prompt))
+        history = _history_get(max_exchanges=5, max_hours=4)
+        prompt   = build_prompt("chat", extra=extra, history=history)
+        response = ask_claude(prompt)
+        _history_append("assistant", response)
+        await _send_long(update.message, response)
     except Exception as e:
         log.exception("free chat failed")
         await update.message.reply_text(f"Error: {e}")
