@@ -1,6 +1,6 @@
 # Triathlon AI Training System
 
-A local-first personal triathlon coach. Syncs your Garmin workouts, calculates training load metrics (CTL/ATL/TSB, HR zones, weekly volume), and uses Claude AI to generate personalized training plans, weekly analysis, and daily diet recommendations — all controlled from a Telegram bot on your phone.
+A local-first personal triathlon coach. Syncs your Garmin workouts, calculates training load metrics, and uses Claude AI to generate personalized training plans, weekly analysis, and daily diet recommendations — all controlled from a Telegram bot on your phone.
 
 Everything runs on your laptop. Your data never leaves your machine.
 
@@ -9,17 +9,20 @@ Everything runs on your laptop. Your data never leaves your machine.
 ## How it works
 
 ```
-Garmin Connect
+Garmin Connect (last 6 months)
       ↓
-garmin/sync.py          ← downloads activities as JSON files
+garmin/sync.py          ← downloads activities + detects races automatically
       ↓
 data/activities/        ← one JSON per workout
+data/races/             ← one JSON per race result (with splits)
       ↓
-metrics/calculator.py   ← calculates CTL/ATL/TSB, HR zones, weekly volume
+metrics/calculator.py   ← volume, HR zones, avg paces (4w / 12w / 6m windows)
       ↓
 data/metrics/current.json
       ↓
 ai/layer.py             ← ask_claude(prompt) → response
+                           always injects: current date, metrics, profile,
+                           race history, active plan, conversation context
       ↓
 Telegram bot            ← your interface from phone or laptop
 ```
@@ -29,202 +32,244 @@ Telegram bot            ← your interface from phone or laptop
 ## Prerequisites
 
 - Python 3.10+
-- [Claude Code CLI](https://claude.ai/code) installed and logged in (`claude --version` should work)
-- A Garmin Connect account with some activities
+- [Claude Code CLI](https://claude.ai/code) installed and logged in (`claude --version`)
+- A Garmin Connect account with activities
 - A Telegram account
 
 ---
 
-## Step 1 — Create your Telegram bot
+## Setup
 
-You need a bot token to connect the system to your Telegram.
+### 1. Create your Telegram bot
 
-1. Open Telegram and search for **@BotFather**
-2. Send `/start`
-3. Send `/newbot`
-4. Choose a **display name** — anything you like, e.g. `My Triathlon Coach`
-5. Choose a **username** — must be unique and end in `bot`, e.g. `mateo_tri_bot`
-6. BotFather replies with your token:
-   ```
-   Use this token to access the HTTP API:
-   1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
-   ```
-   Copy it — you'll need it in the next step.
+1. Open Telegram → search **@BotFather**
+2. Send `/newbot`
+3. Choose a display name and a username ending in `bot`
+4. Copy the token BotFather gives you
 
-> The bot is private by default. Only you can talk to it unless you share the link.
-
----
-
-## Step 2 — Configure credentials
-
-Copy the example file and fill in your values:
+### 2. Configure credentials
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and fill in:
+Edit `.env`:
 
 ```env
-TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz   # from BotFather
-GARMIN_USERNAME=your@email.com                               # Garmin Connect login
-GARMIN_PASSWORD=yourpassword                                 # Garmin Connect password
-ANTHROPIC_API_KEY=                                          # leave empty for now (Phase 4)
-USE_API=false                                               # keep false (uses claude --print)
+TELEGRAM_BOT_TOKEN=1234567890:ABCdef...   # from BotFather
+GARMIN_USERNAME=your@email.com
+GARMIN_PASSWORD=yourpassword
+ANTHROPIC_API_KEY=                        # leave empty for now (Phase 4)
+USE_API=false                             # keep false — uses claude --print
 ```
 
-> `.env` is in `.gitignore` — it will never be committed to git.
+### 3. Fill in your profile
 
----
-
-## Step 3 — Fill in your profile
-
-Edit `data/profile.json` with your personal data. This is what makes AI recommendations specific to you rather than generic:
+Edit `data/profile.json` — this is what makes AI advice personal rather than generic:
 
 ```json
 {
   "name": "Mateo",
   "age": 30,
-  "height_cm": 175,
-  "weight_kg": 70,
+  "height_cm": 180,
+  "weight_kg": 83,
   "max_hr": null,
   "resting_hr": null,
   "level": "intermediate",
   "goal": "finish_olimpico",
   "available_days": ["lunes", "martes", "jueves", "sabado", "domingo"],
-  "max_hours_per_week": 10,
+  "max_hours_per_week": 15,
   "target_races": [
     {
       "name": "Triatlón X",
-      "date": "2026-09-15",
+      "date": "2027-05-15",
       "distance": "olimpico",
       "priority": "A",
       "goal_time": null
     }
-  ]
+  ],
+  "injuries_history": ["Fasciitis plantar"]
 }
 ```
 
-**Field reference:**
+**Profile fields:**
 
 | Field | Notes |
 |-------|-------|
 | `age` | Used to estimate max HR (220 − age) if `max_hr` is null |
-| `max_hr` | Fill this if you know it from a real test — overrides the estimate |
-| `resting_hr` | Optional. Enables more precise HR zones (Karvonen formula) |
+| `max_hr` | Overrides the estimate if you know your real max HR |
+| `resting_hr` | Enables Karvonen HR zone calculation (more precise) |
 | `level` | `beginner` / `intermediate` / `advanced` |
-| `goal` | `finish_olimpico` / `improve_time` / `podium` — shapes training intensity |
-| `priority` in races | `A` = goal race (full taper) · `B` = important (partial taper) · `C` = training race |
+| `goal` | `finish_olimpico` / `improve_time` / `podium` |
+| Race `priority` | `A` = goal race (full taper) · `B` = important · `C` = training race |
+
+### 4. Install and run
+
+```bash
+make install   # creates .venv and installs dependencies
+make run       # starts the bot
+```
+
+Open Telegram, find your bot, send `/help`.
 
 ---
 
-## Step 4 — Install dependencies
+## Commands
 
-```bash
-make install
-```
-
-Or manually:
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## Step 5 — Run the bot
-
-```bash
-make run
-```
-
-The bot starts polling. Open Telegram, find your bot by its username, and send `/help`.
-
-> The laptop must be on and the bot must be running for it to respond. No server needed.
-
----
-
-## Available commands
-
+### Training
 | Command | What it does |
 |---------|-------------|
-| `/sync` | Download new Garmin activities + recalculate metrics |
-| `/status` | Weekly volume: this week vs last week per sport |
-| `/analyze` | Full AI analysis of your recent training |
-| `/help` | List of commands |
+| `/sync` | Download last 6 months from Garmin, recalculate all metrics |
+| `/estado` | Quick fitness check — fresh / loaded / fatigued (5 lines) |
+| `/analizar` | Deep analysis of last 6 months with expert coach AI |
+| `/resumen` | Fitness summary + predicted times for 5K, 10K, half marathon, sprint tri, olympic tri |
+| `/alerta` | Check for overtraining risk |
 
-Phase 2 will add: `/plan`, `/plan validate`, `/diet`, `/note`, `/races`
+### Plans
+| Command | What it does |
+|---------|-------------|
+| `/plan [instrucciones]` | Generate a full-season plan up to your next A race. Optional: add instructions inline |
+| `/guardar_plan` | Save the plan once you're happy with it |
+| `/ver_plan` | View the current or pending plan |
+
+### Diet
+| Command | What it does |
+|---------|-------------|
+| `/dieta` | Generate a weekly nutrition plan adapted to training load |
+| `/ver_dieta` | View the saved diet |
+
+### Races
+| Command | What it does |
+|---------|-------------|
+| `/carreras` | List upcoming races with countdown |
+| `/nueva_carrera` | Add a race to the calendar |
+| `/resultados` | View past race results |
+| `/registrar_carrera` | Log a race result manually |
+
+### Other
+| Command | What it does |
+|---------|-------------|
+| `/nota <text>` | Log post-workout feeling — AI reads it as context |
+| `/help` | List all commands |
+| **free chat** | Ask anything — AI answers with full context loaded |
 
 ---
 
-## Where your data is stored
+## Plan workflow
 
-All data lives in `data/` on your laptop:
+The plan is never saved automatically. You control when it's committed:
+
+```
+/plan                      → generates plan, shows it, does NOT save
+/plan más natación este mes → same with extra instructions
+[free chat to refine]       → AI keeps plan in context, adapts on request
+/guardar_plan              → saves when you're happy
+/ver_plan                  → shows pending or saved plan
+```
+
+---
+
+## Adding race results
+
+**Automatically:** `/sync` detects activities Garmin has marked as races and saves them with splits.
+
+**Manually:**
+```
+/registrar_carrera nombre|fecha|distancia|tiempo[|pos_general][|pos_cat][|notas]
+```
+Example:
+```
+/registrar_carrera 10K Valencia|2026-03-15|10k|44:30|38|6|Bien hasta el km 8
+```
+
+Distances: `5k` `10k` `media_maraton` `maraton` `sprint` `olimpico` `medio` `iron`
+
+Race history is automatically included in every AI call — plans and predictions are based on your real times, not estimates.
+
+---
+
+## Conversation context
+
+The bot maintains a rolling conversation window (last 5 exchanges, 4-hour window). This means:
+
+- After `/plan` or `/dieta`, keep chatting to refine — the AI remembers what it just told you
+- `/sync` clears the history (fresh data = fresh start)
+
+The AI always knows the current date and day of the week (injected automatically), so schedules and race countdowns are always accurate.
+
+---
+
+## Data structure
+
+All data lives in `data/` on your laptop (Docker volume if running containerised):
 
 ```
 data/
-├── activities/        ← one JSON per Garmin workout (e.g. 12345678.json)
+├── activities/        ← one JSON per Garmin workout
+├── races/             ← one JSON per race result (time, splits, position, HR)
 ├── metrics/
 │   └── current.json   ← recalculated on every /sync
 ├── plans/
-│   ├── training/      ← weekly training plans (Phase 2)
-│   └── diet/          ← daily diet plans (Phase 3)
+│   ├── training/
+│   │   ├── current.txt   ← saved training plan
+│   │   └── pending.txt   ← plan awaiting approval
+│   └── diet/
+│       └── current.txt   ← saved diet plan
 ├── history/           ← planned vs actual compliance (Phase 2)
+├── conversation.json  ← rolling chat history (auto-managed)
 ├── profile.json       ← your personal profile (edit this)
-└── journal.json       ← post-workout feelings log (Phase 2)
+└── journal.json       ← post-workout feelings
 ```
 
-`data/` is in `.gitignore` so your personal workout data is never pushed to GitHub.
+`data/` is in `.gitignore` — personal data never reaches GitHub.
 
 ---
 
-## Makefile commands
+## Makefile
 
 ```bash
-make run      # Start bot locally (POC mode, uses claude --print)
+make run      # Start bot locally (POC — uses claude --print)
 make stop     # Kill the running bot
-make install  # pip install -r requirements.txt
+make install  # Create .venv and install dependencies
 make help     # Show all commands
 ```
 
-Docker commands (Phase 4, requires `ANTHROPIC_API_KEY`):
+Docker (Phase 4, requires `ANTHROPIC_API_KEY`):
 ```bash
 make up       # Start in Docker background
-make down     # Stop and remove containers
-make logs     # Follow container logs
-make build    # Rebuild Docker image
+make down     # Stop containers
+make logs     # Follow logs
+make build    # Rebuild image
 ```
 
 ---
 
-## Running each module standalone (for debugging)
-
-Each module can run independently from the terminal:
+## Debug — run modules directly
 
 ```bash
-python -m garmin.sync          # sync activities, print what was saved
-python -m metrics.calculator   # recalculate metrics, print result
+python -m garmin.sync          # sync and print what was saved
+python -m metrics.calculator   # recalculate metrics and print JSON
 ```
+
+---
+
+## Switching to production AI (Phase 4)
+
+When you want to move from `claude --print` to the Anthropic API:
+
+1. Get a key at [console.anthropic.com](https://console.anthropic.com)
+2. Add to `.env`: `ANTHROPIC_API_KEY=sk-ant-...` and `USE_API=true`
+
+That's the only change needed. Docker always uses `USE_API=true` automatically.
 
 ---
 
 ## Roadmap
 
-- [x] Project design and architecture
-- [x] Project scaffolding (modules, Docker, Makefile)
-- [ ] **Phase 1 — POC**: Garmin sync, basic metrics, Claude `--print`, `/sync` `/status` `/analyze`
-- [ ] **Phase 2 — Core**: CTL/ATL/TSB, training plans, journal, plan vs actual tracking
-- [ ] **Phase 3 — Diet & periodization**: nutrition module, race periodization, overtraining alerts
-- [ ] **Phase 4 — Production**: migrate AI to Claude API, Docker deployment, optional web dashboard
-
----
-
-## Switching to production mode (Phase 4)
-
-When the POC works and you want to switch to the Anthropic API:
-
-1. Get an API key at [console.anthropic.com](https://console.anthropic.com)
-2. Add it to `.env`: `ANTHROPIC_API_KEY=sk-ant-...`
-3. Set `USE_API=true` in `.env`
-
-That's the only change needed. The rest of the code is untouched.
-For Docker deployment, `USE_API=true` is already set inside the container automatically.
+- [x] Architecture design and project plan
+- [x] Full project scaffolding (modules, Makefile, Docker)
+- [x] Phase 1 — Garmin sync (6 months), metrics, Claude `--print`, `/sync` `/estado` `/analizar` `/resumen`
+- [x] Phase 1+ — Race tracking (auto + manual), conversation context, date injection, long-term plan with approval flow, diet
+- [ ] Phase 2 — CTL/ATL/TSB, plan vs actual compliance tracking
+- [ ] Phase 3 — Race periodization (base/build/peak/taper auto-detection), overtraining automation
+- [ ] Phase 4 — Claude API, Docker deployment, optional web dashboard

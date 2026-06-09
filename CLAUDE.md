@@ -2,43 +2,34 @@
 
 ## What this project is
 
-A **local-first** personal triathlon training assistant. It pulls workout data from Garmin Connect, calculates performance metrics (CTL/ATL/TSB, HR zones, weekly volume), and uses Claude AI to generate personalized training plans, weekly analysis, and daily diet recommendations. The interface is a Telegram bot running on the user's laptop.
+A local-first personal triathlon coaching assistant for Mateo. Pulls 6 months of workout data from Garmin Connect, calculates performance metrics, and uses Claude AI to generate personalized training plans, weekly analysis, and daily diet recommendations. Interface is a Telegram bot running on the user's laptop.
 
-The user (Mateo) practices triathlon (swim/bike/run), has a Garmin watch with GPS + HRM, but **no power meter**.
-
----
-
-## Architecture (8 layers)
-
-```
-Garmin Connect
-      ↓
-[1] python-garminconnect     — data extraction (pip library, no AI tokens consumed)
-      ↓
-[2] /data/activities/        — raw JSON per activity
-      ↓
-[3] metrics.py               — calculates CTL/ATL/TSB, HR zones, volume trends
-      ↓
-[4] /data/metrics/current.json  — calculated metrics ready for AI
-      ↓
-[5] ai_layer.py              — decoupled AI interface (POC: claude --print / prod: Anthropic API)
-      ↓
-[6] /data/plans/             — training/diet plans with validation state
-      ↓
-[7] Telegram bot             — conversational interface via polling (no server needed)
-      ↑↓
-User (mobile or terminal)
-```
+User: Mateo — triathlete (swim/bike/run), Garmin watch with GPS + HRM, no power meter. Plantar fasciitis history.
 
 ---
 
-## Key design principles
+## Architecture
 
-- **Local first**: everything runs on the user's laptop. Only Telegram is external.
-- **Decoupled AI layer**: `ai_layer.py` exposes a single `ask_claude(prompt: str) -> str` function. Swapping POC → production = changing one module, nothing else.
-- **JSON storage**: all data in `/data/`. Human-readable, LLM-friendly, no DB needed.
-- **No RAG**: all context (metrics + profile + plan) fits comfortably in Claude's context window.
-- **Docker**: full system dockerized for portability (laptop → Raspberry Pi → VPS).
+```
+Garmin Connect (last 6 months)
+      ↓
+[1] garmin/sync.py          — python-garminconnect library, detects races
+      ↓
+[2] data/activities/        — one JSON per workout
+    data/races/             — one JSON per race result (splits, position, HR)
+      ↓
+[3] metrics/calculator.py   — volume, HR zones, avg paces (4w/12w/6m windows)
+      ↓
+[4] data/metrics/current.json
+      ↓
+[5] ai/layer.py             — ask_claude(prompt) / build_prompt()
+                               ONLY file that knows how AI is called
+      ↓
+[6] data/plans/training/    — pending.txt (draft) + current.txt (approved)
+    data/plans/diet/        — current.txt
+      ↓
+[7] bot/telegram_bot.py     — Telegram polling bot, all commands
+```
 
 ---
 
@@ -46,78 +37,140 @@ User (mobile or terminal)
 
 ```
 /
-├── bot/
-│   └── telegram_bot.py      # Telegram bot, all commands
-├── scripts/
-│   ├── sync.py              # uses python-garminconnect library, dumps JSONs
-│   └── metrics.py           # calculates all training metrics
+├── garmin/
+│   └── sync.py              # fetch 6 months, detect races, normalize JSONs
+├── metrics/
+│   └── calculator.py        # CTL/ATL prep, HR zones, paces (4w/12w/6m)
+├── races/
+│   └── recorder.py          # save/load race results, build_race_result()
 ├── ai/
-│   └── ai_layer.py          # SINGLE interface: ask_claude(prompt) -> str
-├── data/                    # gitignored if personal data; mounted as Docker volume
+│   ├── layer.py             # ask_claude() + build_prompt() — swappable POC/prod
+│   └── prompts/
+│       ├── analysis.txt     # expert coach, 6-month deep analysis
+│       ├── summary.txt      # fitness state + race time predictions
+│       ├── plan.txt         # long-term periodization plan
+│       ├── diet.txt         # weekly nutrition (sports dietitian persona)
+│       ├── status.txt       # quick 5-line fitness check
+│       ├── overtraining.txt # fatigue/overtraining detection
+│       └── chat.txt         # free chat with full context
+├── bot/
+│   └── telegram_bot.py      # all commands + conversation history helpers
+├── data/                    # runtime data — gitignored
 │   ├── activities/          # one JSON per Garmin activity
-│   ├── metrics/             # current.json + historical
-│   ├── plans/
-│   │   ├── training/        # weekly plans with status (propuesto/validado/modificado)
-│   │   └── diet/            # daily diet plans
-│   ├── history/             # compliance log: planned vs actual
-│   ├── profile.json         # static user profile, always loaded by AI
-│   └── journal.json         # post-workout feelings log
-├── prompts/                 # prompt templates (weekly_analysis, plan, diet, etc.)
-├── Dockerfile
-├── docker-compose.yml
-├── .env                     # credentials — NEVER commit
-├── .env.example             # template — commit this
+│   ├── races/               # one JSON per race result
+│   ├── metrics/current.json # recalculated on every /sync
+│   ├── plans/training/      # current.txt (saved) + pending.txt (draft)
+│   ├── plans/diet/          # current.txt
+│   ├── history/             # compliance tracking (Phase 2)
+│   ├── conversation.json    # rolling chat history (last 20 messages)
+│   ├── profile.json         # athlete profile — always loaded by AI
+│   └── journal.json         # post-workout feelings
+├── config.py                # all paths + auto-creates data dirs on import
+├── Makefile
+├── Dockerfile / docker-compose.yml
+├── .env / .env.example
 └── requirements.txt
 ```
 
 ---
 
-## Telegram bot commands
+## Bot commands
 
-| Command | Action |
-|---------|--------|
-| `/sync` | Download new Garmin activities + recalculate metrics |
-| `/status` | Current fitness snapshot (CTL/ATL/TSB + weekly volume) |
-| `/analyze` | Full AI analysis of recent weeks |
-| `/plan` | Generate next week's training plan |
-| `/plan validate` | Validate proposed plan |
-| `/diet` | Daily diet based on training load |
-| `/note <text>` | Add entry to feelings journal |
-| `/races` | List target races |
-| `/help` | List commands |
-| free chat | Any question — AI responds with full context loaded |
+| Command | Description |
+|---------|-------------|
+| `/sync` | Download last 6 months from Garmin + recalculate metrics. Clears conversation history. |
+| `/estado` | Quick fitness check (5 lines) |
+| `/analizar` | Deep 6-month analysis — expert coach persona |
+| `/resumen` | Fitness summary + race time predictions (5K→iron) |
+| `/plan [text]` | Generate long-term plan to next A race. Optional inline instructions. Saves to `pending.txt`. |
+| `/guardar_plan` | Commit pending plan to `current.txt` when satisfied |
+| `/ver_plan` | Show pending (with reminder) or saved plan |
+| `/dieta` | Generate weekly nutrition plan — sports dietitian persona. Saves to `pending`. |
+| `/ver_dieta` | Show saved diet |
+| `/alerta` | Overtraining/fatigue check |
+| `/carreras` | Upcoming races with countdown |
+| `/nueva_carrera` | `nombre\|fecha\|distancia\|prioridad` |
+| `/resultados` | Past race history |
+| `/registrar_carrera` | `nombre\|fecha\|distancia\|tiempo[\|pos][\|notas]` |
+| `/nota <text>` | Add journal entry — AI reads it as context |
+| `/help` | Command list |
+| free chat | Any question — full context + conversation history |
 
 ---
 
-## AI layer (POC vs production)
+## AI layer — POC vs production
 
-**POC** — Claude Code `--print` mode (no API key needed):
+**POC** (`USE_API=false`, default):
 ```bash
-claude --print "$(cat prompts/weekly_analysis.txt) $(cat data/metrics/current.json)"
+claude --print "<full prompt>"
 ```
+Requires Claude Code CLI installed and authenticated locally. Timeout: 180s.
 
-**Production** — Claude API (when POC is validated):
+**Production** (`USE_API=true`):
 ```python
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
-response = client.messages.create(
-    model="claude-opus-4-8",  # or claude-sonnet-4-6 for lower cost
-    max_tokens=2000,
-    messages=[{"role": "user", "content": prompt}]
-)
+client.messages.create(model="claude-sonnet-4-6", max_tokens=4096, ...)
 ```
+Docker always sets `USE_API=true` (ENV in Dockerfile).
 
-Cost estimate: ~5,000 tokens per weekly analysis ≈ €0.02.
+### What `build_prompt()` always injects
+
+Every AI call receives, in order:
+1. **Current date and day** (Spanish + English) — fixes day-of-week errors
+2. **Prompt template** (from `ai/prompts/`)
+3. **Training metrics** (`data/metrics/current.json`)
+4. **Athlete profile** (`data/profile.json`)
+5. **Active plan** — `pending.txt` if it exists, else `current.txt`
+6. **Full race history** (`data/races/*.json`, most recent first)
+7. **Conversation history** (last N exchanges, if passed by caller)
+8. **Extra context** (command-specific: next race, instructions, journal...)
 
 ---
 
-## Environment variables (.env)
+## Conversation history
 
+Stored in `data/conversation.json` as a rolling list of `{role, content, ts}`.
+
+- Max 20 messages retained (10 exchanges)
+- Free chat reads last 5 exchanges within a 4-hour window
+- `/plan` and `/dieta` clear history and seed it with their response
+- `/sync` clears history (fresh data = fresh start)
+- Enables natural follow-up: after `/plan`, chat to refine before `/guardar_plan`
+
+---
+
+## Race tracking
+
+**Auto:** `garmin/sync.py` detects activities where `eventType.typeKey == "race"`, saves to `data/races/` with lap splits via `get_activity_splits()`.
+
+**Manual:** `/registrar_carrera nombre|fecha|distancia|tiempo[|pos_general][|pos_categoria][|notas]`
+
+Race data schema:
+```json
+{
+  "id": "2026-03-15_10k_valencia",
+  "date": "2026-03-15",
+  "name": "10K Valencia",
+  "distance": "10k",
+  "type": "running",
+  "source": "manual",
+  "result": { "total_time": "44:30", "position_overall": 38 },
+  "splits": {},
+  "hr_avg": null,
+  "notes": "Bien hasta el km 8"
+}
 ```
-TELEGRAM_BOT_TOKEN=
-GARMIN_USERNAME=
-GARMIN_PASSWORD=
-ANTHROPIC_API_KEY=       # only needed in production mode
-```
+
+---
+
+## Environment variables
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `TELEGRAM_BOT_TOKEN` | Always | From @BotFather |
+| `GARMIN_USERNAME` | Always | Garmin Connect email |
+| `GARMIN_PASSWORD` | Always | Garmin Connect password |
+| `ANTHROPIC_API_KEY` | Phase 4 only | From console.anthropic.com |
+| `USE_API` | Optional | `false` (default) = claude --print, `true` = Anthropic API |
 
 ---
 
@@ -125,20 +178,19 @@ ANTHROPIC_API_KEY=       # only needed in production mode
 
 | Phase | Status | Scope |
 |-------|--------|-------|
-| **Phase 1 — POC** | 🔲 todo | python-garminconnect setup, sync script, basic metrics, Claude --print, Telegram /sync /status /analyze |
-| **Phase 2 — Core** | 🔲 todo | CTL/ATL/TSB, plan generation + persistence, journal, plan validation, plan vs actual tracking |
-| **Phase 3 — Diet & periodization** | 🔲 todo | Diet module, periodization logic (base/build/peak/taper), overtraining alerts |
-| **Phase 4 — Production** | 🔲 todo | Migrate AI to Claude API, evaluate Raspberry Pi deployment, optional web dashboard |
-
-**Rule: never start a phase until the previous one is working end-to-end.**
+| **Phase 1 — POC** | ✅ done | Garmin sync (6m), basic metrics, Claude --print, all core commands |
+| **Phase 1+** | ✅ done | Race tracking, conversation history, date injection, plan approval flow, diet |
+| **Phase 2 — Core** | 🔲 next | CTL/ATL/TSB, plan vs actual compliance, semanas de descarga automáticas |
+| **Phase 3 — Periodization** | 🔲 todo | Auto base/build/peak/taper phases, overtraining automation |
+| **Phase 4 — Production** | 🔲 todo | Claude API, Docker deployment, optional web dashboard |
 
 ---
 
-## Critical implementation notes
+## Critical implementation rules
 
-- `ai_layer.py` must be the ONLY file that knows how AI is called. All other modules call `ask_claude()`.
-- Scripts must be runnable both from the bot AND from the terminal directly (for development/debugging).
-- `profile.json` is always injected into every AI call — it's what makes recommendations personal, not generic.
-- Bot must handle errors gracefully: Garmin timeouts, AI slowness, missing data, etc.
-- JSON schemas must be documented precisely so a future DB migration or UI is straightforward.
-- No credentials in code. Ever. `.env` + `python-dotenv`.
+- `ai/layer.py` is the **only** file that knows how AI is called. All other modules call `ask_claude()`.
+- `config.py` is the **only** file with path constants. Never hardcode paths elsewhere.
+- `data/profile.json` is **always** injected — it's what makes advice personal not generic.
+- Scripts must run standalone from terminal: `python -m garmin.sync`, `python -m metrics.calculator`.
+- No credentials in code. Ever. `.env` + `python-dotenv` only.
+- Plans are **never** auto-saved. Always `pending.txt` first, `/guardar_plan` to commit.
